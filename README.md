@@ -41,3 +41,5 @@ Bei dem Projekt handelt es sich um die Möglichkeit BattAir Adapter für Akkus a
   - `ssid: Zeile 20`: Hier muss die SSID des Wlans eingetragen werden. Ganz normal mit Leerzeichen falls vorhanden.
   - `password: Zeile 21`: Hier muss das Wlan Password eingetragen werden.
   - `MQTT Broker ohne extra Nutzer: Zeile 1734/1735`: Wenn ein MQTT Broker ohne extra Benutzer verwendet wird muss die Zeile 1734 auskommentiert werden und Zeile 1735 einkommentiert werden.
+- Nun muss der ESP32 nur noch neben die Akkus gelegt werden und mit Strom versorgt werden.
+- Abhängig von der Anzahl der Akkus, taucht dann nach kurzer Zeit im MQTT Broker automatisch ein Gerät mit dem Namen "BattAirMonitor" auf. Dort sind alle Akkus aufgelistet.
