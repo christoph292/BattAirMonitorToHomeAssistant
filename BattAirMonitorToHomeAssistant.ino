@@ -706,7 +706,7 @@ void setup() {
 
   // Set device's details (optional)
   device.setName("BattAirMonitor");
-  device.setSoftwareVersion("1.6.3.6");
+  device.setSoftwareVersion("1.6.3.7");
   device.setManufacturer("BattAir");
   device.setModel("ModelEsp");
   device.enableExtendedUniqueIds();
@@ -1732,6 +1732,7 @@ void setup() {
 
   
   mqtt.begin(BROKER_ADDR, BROKER_USERNAME, BROKER_PASSWORD);
+  //mqtt.begin(BROKER_ADDR);
 
   Serial.println("Scanning...");
 
