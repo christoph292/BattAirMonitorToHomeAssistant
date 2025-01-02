@@ -27,11 +27,17 @@ Bei dem Projekt handelt es sich um die Möglichkeit BattAir Adapter für Akkus a
   - `Als zusätzliche Info wird in diesem Fall in die Variable des Battery Types "Not Found" geschrieben!`
 - `Wird die gespeicherte Liste gelöscht wenn ich eine neue Version per Arduino IDE aufspiele?`:
   Nein diese bleibt erhalten und muss falls gewünscht per Hand gelöscht werden.
+- `Bei der Kompelierung kommt zu zu folgender Fehlermeldung C:\Users\onki\Documents\Arduino\BattAirMonitortoHomeassistant\BattAirMonitortoHomeassistant.ino:564:76: error: expected class-name before '{' token
+class MyAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
+^`: Der Grund ist hierfür das die "NimBle" in Version 2.1.2 oder neuer installiert ist. Bei der Version 1.6.3.7 des BattAirMonitor wird die aktuelle Version noch nicht unterstützt.
   
 ## Benötige Hardware/Software
 - `Microcontroller ESP32`
 - `Arduino IDE`
 
+## Benötige Biblotheken
+- `home-assistant-integration`: getestet mit Version 2.1.0 https://github.com/dawidchyrzynski/arduino-home-assistant
+- `NimBLE-Arduino`: getestet mit Version 1.4.2 https://github.com/h2zero/NimBLE-Arduino
 ## Installation
 `Ich setzte hier Grundsetzliche Kenntnisse wie man einen Sketch in den ESP einspielt als bekannt voraus! Im Zweifel kurz googlen.`
 - `Software anpassen`:
