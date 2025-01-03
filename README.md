@@ -20,7 +20,7 @@ Bei dem Projekt handelt es sich um die Möglichkeit BattAir Adapter für Akkus a
 
 
 ## FAQ
-- `Was ist wenn ich mehr als 25 Akkus besitze?`: Aktuell lassen sich noch nicht mehr auslesen. Wenn mehr als 25 Akkus vorhanden sind und dauerhaft neben dem Microcontroller plaziert sind, werden vermutlich die Daten der zuvielen Akkus nie an Home Assistant weitergeleitet. Dies konnte ich allerdings wegen fehlenden Akkus noch nicht testen.
+- `Was ist wenn ich mehr als 25 Akkus besitze?`: Aktuell lassen sich noch nicht mehr auslesen. Wenn mehr als 25 Akkus vorhanden sind und dauerhaft neben dem Microcontroller platziert sind, werden vermutlich die Daten der zuvielen Akkus nie an Home Assistant weitergeleitet. Dies konnte ich allerdings wegen fehlenden Akkus noch nicht testen.
 - `Eine "BatteryName" Variable zeigt mir den richtigen Namen an, allerdings sind alle Daten 0`:
   - Der Grund hierfür ist das die Entfernung zu dem besagten Akku zu hoch ist. Beim initialen Suchen aller Akkus wird nur der Name gescannt. Teilweise kann es sein das der Akkus so gefunden wird     allerdings die Reichweite für das Daten auslesen zu hoch ist.
   - Das BattAir Modul hat keine Spannung mehr und der Akku ist somit entladen
