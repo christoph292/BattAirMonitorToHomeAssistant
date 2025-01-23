@@ -3,10 +3,14 @@
 BattAirClass::BattAirClass(int macAdress) {
   _macAdress = macAdress;
   Name = "";
-  publicVariable = 0; // Initialisiere die öffentliche Variable
+  Rssi = 0;
+  Status = "";
+
 }
 BattAirClass::BattAirClass() {
   Name = "";
+  Rssi = 0;
+  Status = "";
 }
 
 void BattAirClass::setMacAdress(int macAdress){

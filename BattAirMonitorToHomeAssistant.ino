@@ -12,7 +12,7 @@
 
 //***************************Adjust****************************************************************
 //Home Assistant Mqtt Broker Einstellungen
-#define BROKER_ADDR IPAddress(192, 168, xxx, xxx)
+#define BROKER_ADDR IPAddress(192, 168, 178, 21)
 #define BROKER_USERNAME     "xxx" 
 #define BROKER_PASSWORD     "xxx"
 
@@ -29,7 +29,7 @@ byte mac[] = { 0x00, 0x10, 0xFA, 0x6E, 0x38, 0x4A };
 HADevice device(mac, sizeof(mac));
 HAMqtt mqtt(client, device, 254);
 HANumber sleepTimeCounter("SleepTimeCounter");
-HASelect resetOrder("resetOrder");
+HASelect option("Option");
 HASensorNumber foundDevicesNumber("foundDevices");
 HASensorNumber wakeUpCounter("lapCounter");
 
@@ -454,9 +454,11 @@ int actualBattery = 0;
 //Allgemein
 std::vector<String> foundDevices;
 std::vector<String> foundDevicesNames;
+std::vector<int> foundDevicesRssi;
 std::vector<String> savedDevicesOrder;
 RTC_DATA_ATTR int16_t lapCounter = 1;
 int32_t foundDevicesTempNumber = 0;
+RTC_DATA_ATTR int optionSleep = 0;
 
 //Ausfallsicher speichern
 // Erstelle ein Preferences-Objekt 
@@ -470,7 +472,8 @@ RTC_DATA_ATTR int sleepCount = 0;
 RTC_DATA_ATTR int maxSleepCount = 1;// Anzahl der Zyklen die im Home Assistant eingestellt wurden
 const uint64_t sleepDuration = 60000000;//3600000000;//1 stunde;
 #define uS_TO_S_FACTOR 1000000ULL /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP  86400//3600//60// 1 Tag/1Stunde/1min/       /* Time ESP32 will go to sleep (in seconds) */
+//#define TIME_TO_SLEEP  86400//3600//60// 1 Tag/1Stunde/1min/       /* Time ESP32 will go to sleep (in seconds) */
+#define TIME_TO_SLEEP  60// 1 Tag/1Stunde/1min/       /* Time ESP32 will go to sleep (in seconds) */
 
 //Funktionen
 void saveToPreference(std::vector<String> data){
@@ -561,10 +564,12 @@ bool compareManufacturerData(const std::string& data) {
   return data.compare(0, strlen(TARGET_MANUFACTURER_DATA), TARGET_MANUFACTURER_DATA) == 0;
 }
 
-class MyAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
-  void onResult(NimBLEAdvertisedDevice* advertisedDevice) override {
+class MyAdvertisedDeviceCallbacks : public NimBLEScanCallbacks {
+  void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
     Serial.print("Advertised Device: ");
     Serial.println(advertisedDevice->getName().c_str());
+    Serial.print("RSSI: ");
+    Serial.println(advertisedDevice->getRSSI());
 
     // Überprüfen, ob der Gerätename übereinstimmt und das Gerät noch nicht in der Liste ist
     if (advertisedDevice->haveName() ){//&& advertisedDevice->getName() == TARGET_DEVICE_NAME) {
@@ -595,12 +600,18 @@ class MyAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
           //}
           Serial.print("Device Name cut: "); 
           Serial.println(name); 
-          foundDevicesNames.push_back(name);
+          foundDevicesNames.push_back(name); 
+          foundDevicesRssi.push_back(advertisedDevice->getRSSI());
         } else {
           Serial.println("Gerät bereits in der Liste.");
         } 
       }
     }
+  }
+  void onScanEnd(const NimBLEScanResults& results, int reason) override {
+    scanComplete = true;
+    checkPreferenceList();
+    saveToPreference(savedDevicesOrder);
   }
 };
 
@@ -619,18 +630,29 @@ static void notifyCallback(NimBLERemoteCharacteristic* pNimBLERemoteCharacterist
 void onSelectCommand(int8_t index, HASelect* sender){
     switch (index) {
     case 0:
-        // Option "Keep" was selected
-        //Serial.println("Keep Order");
+        optionSleep=index;
+        // Option "BatteryType" was selected
+        //Serial.println("BatteryType");
         break;
 
     case 1:
-        // Option "Reset" was selected
+        optionSleep=index;
+        // Option "Reset Battery Order" was selected
         preferences.begin("my-app", false);
         preferences.clear();
         preferences.end();
-        //Serial.println("Reset Order");
+        //Serial.println("Reset Battery Order");
         break;
-
+    case 2:
+        optionSleep=index;
+        // Option "Range Test" was selected
+        //Serial.println("Range Test");
+        break;
+    case 3:
+        optionSleep=index;
+        // Option "Info" was selected
+        //Serial.println("Info");
+        break;
     default:
         // unknown option
         return;
@@ -655,11 +677,94 @@ void onNumberCommand(HANumeric number, HANumber* sender){
     sender->setState(number); // report the selected option back to the HA panel
 }
 
+bool readOutClient(NimBLEClient* pClient, int actualBattery, String deviceAddress){
+        Serial.print("Verbunden mit: ");
+        Serial.println(deviceAddress.c_str());
+        
+        // Letzte zwei Stellen der MAC-Adresse extrahieren und als int speichern
+        String macAddressStr = deviceAddress.c_str();
+        String lastTwoDigitsStr = macAddressStr.substring(macAddressStr.length() - 2);
+        int lastTwoDigits = strtol(lastTwoDigitsStr.c_str(), NULL, 16);
+        Serial.print("Letzte zwei Zeichen der Mac Adresse:");
+        Serial.println(lastTwoDigits);
+        BattAirHandlerArray[actualBattery].setMacAdress(lastTwoDigits);
+
+        //Mac Adresse in umgekehrter Reinfolge ins WriteRequest array schreiben
+        writeRequest1[3] = strtol((macAddressStr.substring(macAddressStr.length() - 2)).c_str(), NULL, 16);
+        writeRequest1[4] = strtol((macAddressStr.substring(macAddressStr.length() - 5,macAddressStr.length()-3)).c_str(), NULL, 16);
+        writeRequest1[5] = strtol((macAddressStr.substring(macAddressStr.length() - 8,macAddressStr.length()-6)).c_str(), NULL, 16);
+        writeRequest1[6] = strtol((macAddressStr.substring(macAddressStr.length() - 11,macAddressStr.length()-9)).c_str(), NULL, 16);
+        writeRequest1[7] = strtol((macAddressStr.substring(macAddressStr.length() - 14,macAddressStr.length()-12)).c_str(), NULL, 16);
+        writeRequest1[8] = strtol((macAddressStr.substring(macAddressStr.length() - 17,macAddressStr.length()-15)).c_str(), NULL, 16);
+        writeRequest1[10] = strtol((macAddressStr.substring(macAddressStr.length() - 2)).c_str(), NULL, 16);
+        //for(int i = 0; i<sizeof(writeRequest1);i++) {Serial.println(writeRequest1[i]);}
+        // Daten auslesen
+        // Service abrufen
+        NimBLERemoteService* pRemoteService = pClient->getService(SERVICE_UUID);
+        if (pRemoteService == nullptr) {
+          Serial.print("Service nicht gefunden: ");
+          Serial.println(SERVICE_UUID);
+          pClient->disconnect();
+          return false;
+        }
+
+        // Charakteristik abrufen
+        pRemoteCharacteristic = pRemoteService->getCharacteristic(CHARACTERISTIC_UUID);
+        if (pRemoteCharacteristic == nullptr) {
+          Serial.print("Charakteristik nicht gefunden: ");
+          Serial.println(CHARACTERISTIC_UUID);
+          pClient->disconnect();
+          return false;
+        }
+
+        // Daten lesen
+        if (pRemoteCharacteristic->canRead()) {
+          response = pRemoteCharacteristic->readValue();
+        }
+        delay(200);
+        // Nachricht senden 1
+        uint8_t resultWriteRequest1Array[sizeof(writeRequest1)];
+        for (int j = 0; j < sizeof(writeRequest1); j++) {
+          resultWriteRequest1Array[j] = writeRequest1[j] ^ lastTwoDigits;
+          Serial.print(resultWriteRequest1Array[j], HEX);
+        }
+        Serial.println("");
+        pRemoteCharacteristic->writeValue(resultWriteRequest1Array, sizeof(resultWriteRequest1Array), false);
+
+        delay(500);
+        if (pRemoteCharacteristic->canNotify()) {
+          //Serial.println("notify active");
+          pRemoteCharacteristic->subscribe(true, notifyCallback);
+        }
+        delay(500);
+
+        uint8_t writeRequest[3] = { 0x00, 0x00, 0x00 };
+        uint8_t resultWriteRequestArray[4] = { 0x00, 0x00, 0x00, 0x00 };
+        for (int i = 0; i < 13; i++) {
+          for (int j = 0; j < 4; j++) {
+            resultWriteRequestArray[j] = requestArray[i][j] ^ lastTwoDigits;
+            //Serial.print(resultWriteRequestArray[j], HEX);
+          }
+          //Serial.println("");
+          pRemoteCharacteristic->writeValue(resultWriteRequestArray, sizeof(resultWriteRequestArray), false);
+          // Send Data to HA
+          delay(1000);
+        }
+
+        pClient->disconnect();
+        Serial.println("Verbindung getrennt");
+        return true;
+}
+
 void setup() {
   Serial.begin(115200);
   esp_sleep_wakeup_cause_t wakeupReason = esp_sleep_get_wakeup_cause();
  
-  if (wakeupReason != ESP_SLEEP_WAKEUP_UNDEFINED){
+ Serial.print("optionSleep: ");
+ Serial.println(optionSleep);
+
+ 
+  if (wakeupReason != ESP_SLEEP_WAKEUP_UNDEFINED && optionSleep !=2){
     Serial.print("sleep max Count");
     Serial.println(maxSleepCount);
     if (sleepCount < (maxSleepCount-1)) {
@@ -706,19 +811,19 @@ void setup() {
 
   // Set device's details (optional)
   device.setName("BattAirMonitor");
-  device.setSoftwareVersion("1.6.3.7");
+  device.setSoftwareVersion("1.7.3.8");
   device.setManufacturer("BattAir");
   device.setModel("ModelEsp");
   device.enableExtendedUniqueIds();
     
   // optional properties
-  resetOrder.setIcon("mdi:restart");
-  resetOrder.setName("Clear Print Order");
+  option.setIcon("mdi:restart");
+  option.setName("Option");
   
   // press callbacks
-  resetOrder.onCommand(onSelectCommand);
-  resetOrder.setOptions("Keep;Reset"); // use semicolons as separator of options
-  resetOrder.setRetain(true);
+  option.onCommand(onSelectCommand);
+  option.setOptions("BatteryType;Reset Battery Order;Range Test;Info"); // use semicolons as separator of options
+  option.setRetain(true);
   // handle command from the HA panel
   sleepTimeCounter.onCommand(onNumberCommand);
 
@@ -1743,10 +1848,10 @@ void setup() {
 
   // Scan-Konfiguration
   NimBLEScan* pNimBLEScan = NimBLEDevice::getScan();
-  pNimBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks(), true);
+  pNimBLEScan->setScanCallbacks(new MyAdvertisedDeviceCallbacks(), true);
   pNimBLEScan->setActiveScan(true);             // Aaktiver Scan
   pNimBLEScan->setDuplicateFilter(true);         //Zeigt nur neue Teilnehmer an
-  pNimBLEScan->start(20, scanCompleteCallback);  // Scan für 30 Sekunden
+  pNimBLEScan->start(20000,false,false );  // Scan für 30 Sekunden
 }
 
 void loop() {
@@ -1768,96 +1873,37 @@ void loop() {
     Serial.println(" Geräte gefunden.");
     for (auto& deviceAddress : foundDevices) {
       Serial.print("Versuche, eine Verbindung zu ");
-      Serial.println(deviceAddress.c_str());
+      Serial.print(deviceAddress.c_str());
+      Serial.println(" aufzubauen");
       Serial.print("Name: ");
       Serial.println(foundDevicesNames[i].c_str());
       actualBattery = getListNumberSavedOrder(foundDevicesNames[i]);
-      BattAirHandlerArray[actualBattery].Name = foundDevicesNames[i];
-      Serial.print("actualBattery: ");
+      Serial.print("Reinfolge Position: ");
       Serial.println(actualBattery);
-      Serial.print("BattAirName: ");
-      Serial.println(BattAirHandlerArray[actualBattery].Name);
+      BattAirHandlerArray[actualBattery].Name = foundDevicesNames[i];
+      BattAirHandlerArray[actualBattery].Rssi = foundDevicesRssi[i];
+      BattAirHandlerArray[actualBattery].Status = BattAirHandlerArray[actualBattery].Status + foundDevicesRssi[i];
 
-      NimBLEClient* pClient = NimBLEDevice::createClient();
-      if (pClient->connect(NimBLEAddress(deviceAddress.c_str()))) {
-        Serial.print("Verbunden mit: ");
-        Serial.println(deviceAddress.c_str());
-        
-        // Letzte zwei Stellen der MAC-Adresse extrahieren und als int speichern
-        String macAddressStr = deviceAddress.c_str();
-        String lastTwoDigitsStr = macAddressStr.substring(macAddressStr.length() - 2);
-        int lastTwoDigits = strtol(lastTwoDigitsStr.c_str(), NULL, 16);
-        Serial.print("Letzte zwei Zeichen der Mac Adresse:");
-        Serial.println(lastTwoDigits);
-        BattAirHandlerArray[actualBattery].setMacAdress(lastTwoDigits);
-
-        //Mac Adresse in umgekehrter Reinfolge ins WriteRequest array schreiben
-        writeRequest1[3] = strtol((macAddressStr.substring(macAddressStr.length() - 2)).c_str(), NULL, 16);
-        writeRequest1[4] = strtol((macAddressStr.substring(macAddressStr.length() - 5,macAddressStr.length()-3)).c_str(), NULL, 16);
-        writeRequest1[5] = strtol((macAddressStr.substring(macAddressStr.length() - 8,macAddressStr.length()-6)).c_str(), NULL, 16);
-        writeRequest1[6] = strtol((macAddressStr.substring(macAddressStr.length() - 11,macAddressStr.length()-9)).c_str(), NULL, 16);
-        writeRequest1[7] = strtol((macAddressStr.substring(macAddressStr.length() - 14,macAddressStr.length()-12)).c_str(), NULL, 16);
-        writeRequest1[8] = strtol((macAddressStr.substring(macAddressStr.length() - 17,macAddressStr.length()-15)).c_str(), NULL, 16);
-        writeRequest1[10] = strtol((macAddressStr.substring(macAddressStr.length() - 2)).c_str(), NULL, 16);
-        //for(int i = 0; i<sizeof(writeRequest1);i++) {Serial.println(writeRequest1[i]);}
-        // Daten auslesen
-        // Service abrufen
-        NimBLERemoteService* pRemoteService = pClient->getService(SERVICE_UUID);
-        if (pRemoteService == nullptr) {
-          Serial.print("Service nicht gefunden: ");
-          Serial.println(SERVICE_UUID);
-          pClient->disconnect();
-          return;
-        }
-
-        // Charakteristik abrufen
-        pRemoteCharacteristic = pRemoteService->getCharacteristic(CHARACTERISTIC_UUID);
-        if (pRemoteCharacteristic == nullptr) {
-          Serial.print("Charakteristik nicht gefunden: ");
-          Serial.println(CHARACTERISTIC_UUID);
-          pClient->disconnect();
-          return;
-        }
-
-        // Daten lesen
-        if (pRemoteCharacteristic->canRead()) {
-          response = pRemoteCharacteristic->readValue();
-        }
-        delay(200);
-        // Nachricht senden 1
-        uint8_t resultWriteRequest1Array[sizeof(writeRequest1)];
-        for (int j = 0; j < sizeof(writeRequest1); j++) {
-          resultWriteRequest1Array[j] = writeRequest1[j] ^ lastTwoDigits;
-          Serial.print(resultWriteRequest1Array[j], HEX);
-        }
-        Serial.println("");
-        pRemoteCharacteristic->writeValue(resultWriteRequest1Array, sizeof(resultWriteRequest1Array), false);
-
-        delay(500);
-        if (pRemoteCharacteristic->canNotify()) {
-          //Serial.println("notify active");
-          pRemoteCharacteristic->subscribe(true, notifyCallback);
-        }
-        delay(500);
-
-        uint8_t writeRequest[3] = { 0x00, 0x00, 0x00 };
-        uint8_t resultWriteRequestArray[4] = { 0x00, 0x00, 0x00, 0x00 };
-        for (int i = 0; i < 13; i++) {
-          for (int j = 0; j < 4; j++) {
-            resultWriteRequestArray[j] = requestArray[i][j] ^ lastTwoDigits;
-            //Serial.print(resultWriteRequestArray[j], HEX);
+      if (optionSleep != 2){
+        int attempts = 0; 
+        const int maxAttempts = 3; 
+        bool connected = false;
+        while (attempts < maxAttempts && !connected) { 
+          Serial.print("Vebindungsversuch: ");
+          Serial.println(attempts + 1); 
+          NimBLEClient* pClient = NimBLEDevice::createClient();
+          if (pClient->connect(NimBLEAddress(deviceAddress.c_str(),BLE_ADDR_PUBLIC ))) {
+            BattAirHandlerArray[actualBattery].Status = BattAirHandlerArray[actualBattery].Status + "|" + attempts + 1;
+            Serial.print("Status: ");
+            Serial.println(BattAirHandlerArray[actualBattery].Status.c_str());
+            connected = readOutClient(pClient,actualBattery,deviceAddress);
+          } else {
+          Serial.println("Verbindung zum BattAir Modul fehlgeschlagen.");
           }
-          //Serial.println("");
-          pRemoteCharacteristic->writeValue(resultWriteRequestArray, sizeof(resultWriteRequestArray), false);
-          // Send Data to HA
-          delay(1000);
-        }
-
-        pClient->disconnect();
-        Serial.println("Verbindung getrennt");
-      } else {
-        Serial.println("Verbindung zum Server fehlgeschlagen.");
+            attempts++; 
+            delay(2000); // Wartezeit zwischen den Versuchen  
       }
+    }
     i++;
     }
     readOutComplete = true;
@@ -1876,8 +1922,13 @@ void loop() {
           //if (BattAirHandlerArray[i].Name != ""){
           bat1Name.setValue(BattAirHandlerArray[i].Name.c_str());
           //bat1Temperature.setValue(BattAirHandlerArray[i].RealTimeParameter1Response.temperature);
-          if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1>0)bat1BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-          else bat1BatteryType.setValue("NotFound");
+          if (optionSleep == 0 || optionSleep == 1)  {
+            bat1BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat1BatteryType.setValue("NotFound");
+          }
+          else if (optionSleep == 2)  bat1BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
+          else if (optionSleep == 3)  bat1BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
+          
           bat1BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat1BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
           bat1CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
@@ -1897,7 +1948,8 @@ void loop() {
           else bat2BatteryType.setValue("NotFound");
           bat2BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat2BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat2CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat2CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat2CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat2CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat2CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat2CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -1914,7 +1966,8 @@ void loop() {
           else bat3BatteryType.setValue("NotFound");
           bat3BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat3BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat3CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat3CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat3CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat3CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat3CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat3CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -1931,7 +1984,8 @@ void loop() {
           else bat4BatteryType.setValue("NotFound");
           bat4BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat4BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat4CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat4CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat4CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat4CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat4CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat4CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -1948,7 +2002,8 @@ void loop() {
           else bat5BatteryType.setValue("NotFound");
           bat5BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat5BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat5CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat5CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat5CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat5CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat5CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat5CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -1965,7 +2020,8 @@ void loop() {
           else bat6BatteryType.setValue("NotFound");
           bat6BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat6BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat6CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat6CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat6CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat6CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat6CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat6CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -1982,7 +2038,8 @@ void loop() {
           else bat7BatteryType.setValue("NotFound");
           bat7BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat7BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat7CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat7CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat7CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat7CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat7CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat7CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -1999,7 +2056,8 @@ void loop() {
           else bat8BatteryType.setValue("NotFound");
           bat8BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat8BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat8CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat8CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat8CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat8CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat8CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat8CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2016,7 +2074,8 @@ void loop() {
           else bat9BatteryType.setValue("NotFound");
           bat9BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat9BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat9CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat9CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat9CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat9CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat9CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat9CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2033,7 +2092,8 @@ void loop() {
           else bat10BatteryType.setValue("NotFound");
           bat10BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat10BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat10CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat10CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat10CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat10CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat10CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat10CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2050,7 +2110,8 @@ void loop() {
           else bat11BatteryType.setValue("NotFound");
           bat11BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat11BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat11CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat11CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat11CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat11CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat11CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat11CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2067,7 +2128,8 @@ void loop() {
           else bat12BatteryType.setValue("NotFound");
           bat12BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat12BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat12CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat12CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat12CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat12CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat12CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat12CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2084,7 +2146,8 @@ void loop() {
           else bat13BatteryType.setValue("NotFound");
           bat13BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat13BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat13CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat13CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat13CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat13CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat13CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat13CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2101,7 +2164,8 @@ void loop() {
           else bat14BatteryType.setValue("NotFound");
           bat14BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat14BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat14CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat14CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat14CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat14CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat14CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat14CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2118,7 +2182,8 @@ void loop() {
           else bat15BatteryType.setValue("NotFound");
           bat15BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat15BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat15CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat15CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat15CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat15CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat15CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat15CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2135,7 +2200,8 @@ void loop() {
           else bat16BatteryType.setValue("NotFound");
           bat16BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat16BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat16CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat16CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat16CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat16CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat16CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat16CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2152,7 +2218,8 @@ void loop() {
           else bat17BatteryType.setValue("NotFound");
           bat17BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat17BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat17CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat17CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat17CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat17CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat17CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat17CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2169,7 +2236,8 @@ void loop() {
           else bat18BatteryType.setValue("NotFound");
           bat18BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat18BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat18CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat18CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat18CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat18CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat18CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat18CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2186,7 +2254,8 @@ void loop() {
           else bat19BatteryType.setValue("NotFound");
           bat19BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat19BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat19CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat19CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat19CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat19CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat19CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat19CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2203,7 +2272,8 @@ void loop() {
           else bat20BatteryType.setValue("NotFound");
           bat20BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat20BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat20CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat20CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat20CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat20CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat20CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat20CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2220,7 +2290,8 @@ void loop() {
           else bat21BatteryType.setValue("NotFound");
           bat21BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat21BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat21CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat21CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat21CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat21CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat21CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat21CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2237,7 +2308,8 @@ void loop() {
           else bat22BatteryType.setValue("NotFound");
           bat22BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat22BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat22CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat22CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat22CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat22CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat22CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat22CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2254,7 +2326,8 @@ void loop() {
           else bat23BatteryType.setValue("NotFound");
           bat23BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat23BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat23CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat23CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat23CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat23CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat23CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat23CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2271,7 +2344,8 @@ void loop() {
           else bat24BatteryType.setValue("NotFound");
           bat24BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat24BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat24CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat24CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat24CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat24CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat24CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat24CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2288,7 +2362,8 @@ void loop() {
           else bat25BatteryType.setValue("NotFound");
           bat25BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat25BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat25CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat25CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat25CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat25CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat25CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat25CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2305,7 +2380,8 @@ void loop() {
           else bat26BatteryType.setValue("NotFound");
           bat26BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat26BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat26CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat26CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat26CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat26CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat26CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat26CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2322,7 +2398,8 @@ void loop() {
           else bat27BatteryType.setValue("NotFound");
           bat27BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat27BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat27CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat27CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat27CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat27CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat27CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat27CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2339,7 +2416,8 @@ void loop() {
           else bat28BatteryType.setValue("NotFound");
           bat28BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat28BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat28CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat28CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat28CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat28CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat28CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat28CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2356,7 +2434,8 @@ void loop() {
           else bat29BatteryType.setValue("NotFound");
           bat29BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat29BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat29CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat29CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat29CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat29CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat29CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat29CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2373,7 +2452,8 @@ void loop() {
           else bat30BatteryType.setValue("NotFound");
           bat30BatteryCycles.setValue(BattAirHandlerArray[i].AbnormalStatisticsResponse.batteryCycles);
           bat30BatteryVoltage.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage5+BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage6);
-          bat30CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          if (optionSleep != 2) bat30CellVoltage1.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1);
+          else bat30CellVoltage1.setValue(BattAirHandlerArray[i].Rssi);
           bat30CellVoltage2.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage2);  
           bat30CellVoltage3.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage3);
           bat30CellVoltage4.setValue(BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage4); 
@@ -2390,11 +2470,19 @@ void loop() {
       }
     }    
   }
-  if (readOutComplete && actCycles >= cycles){
-    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP*uS_TO_S_FACTOR); 
+  if (readOutComplete && ((actCycles >= cycles && optionSleep !=2) || (actCycles >= 5 && optionSleep ==2))){
+    if (optionSleep !=2){
+      esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP*uS_TO_S_FACTOR); 
+      // Gib eine Meldung aus und gehe in den Deep-Sleep-Modus 
+      Serial.println("Going to sleep now"); 
+      delay(1000); // Gib der seriellen Ausgabe Zeit, die Nachricht zu senden 
+      esp_deep_sleep_start();
+  }else{
+    esp_sleep_enable_timer_wakeup(10*uS_TO_S_FACTOR); 
     // Gib eine Meldung aus und gehe in den Deep-Sleep-Modus 
-    Serial.println("Going to sleep now"); 
+    Serial.println("Going to sleep in Range Test mode now"); 
     delay(1000); // Gib der seriellen Ausgabe Zeit, die Nachricht zu senden 
     esp_deep_sleep_start();
+  }
   }
 }
