@@ -12,6 +12,8 @@ class BattAirClass {
     void getEncryptData();
     int publicVariable; // Öffentliche Variable
     String Name;
+    int32_t Rssi;
+    String Status;
 
     struct BatteryOEMParametersResponseState {
       int chargingRate;
