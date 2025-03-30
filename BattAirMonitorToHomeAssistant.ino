@@ -36,6 +36,7 @@ HADevice device(mac, sizeof(mac));
 HAMqtt mqtt(client, device, 254);
 HANumber sleepTimeCounter("SleepTimeCounter");
 HASelect option("Option");
+HASelect resetOrder("resetOrder");
 HASensorNumber foundDevicesNumber("foundDevices");
 HASensorNumber wakeUpCounter("lapCounter");
 
@@ -758,7 +759,38 @@ static void notifyCallback(NimBLERemoteCharacteristic* pNimBLERemoteCharacterist
   BattAirHandlerArray[actualBattery].setDataToEncrypt(pData, length);
 }
 
+void onSelectCommandReset(int8_t index, HASelect* sender){
+    switch (index) {
+    case 0:
+        // Option "Keep" was selected
+        //Serial.println("Keep Order");
+        break;
+
+    case 1:
+        // Option "Reset" was selected
+        preferences.begin("my-app", false);
+        preferences.clear();
+        preferences.end();
+        //Serial.println("Reset Order");
+        break;
+
+    default:
+        // unknown option
+        return;
+    }
+
+    sender->setState(index); // report the selected option back to the HA panel
+
+    // it may return null
+    if (sender->getCurrentOption()) {
+        //Serial.print("Current option: ");
+        //Serial.println(sender->getCurrentOption());
+    }
+}
 void onSelectCommand(int8_t index, HASelect* sender){
+
+   
+    
     switch (index) {
     case 0:
         optionSleep=index;
@@ -769,9 +801,9 @@ void onSelectCommand(int8_t index, HASelect* sender){
     case 1:
         optionSleep=index;
         // Option "Reset Battery Order" was selected
-        preferences.begin("my-app", false);
-        preferences.clear();
-        preferences.end();
+        //preferences.begin("my-app", false);
+        //preferences.clear();
+        //preferences.end();
         //Serial.println("Reset Battery Order");
         break;
     case 2:
@@ -788,7 +820,6 @@ void onSelectCommand(int8_t index, HASelect* sender){
         // unknown option
         return;
     }
-
     sender->setState(index); // report the selected option back to the HA panel
 
     // it may return null
@@ -942,7 +973,7 @@ void setup() {
 
   // Set device's details (optional)
   device.setName("BattAirMonitor");
-  device.setSoftwareVersion("1.8.3.9");
+  device.setSoftwareVersion("1.9.3.10");
   device.setManufacturer("BattAir");
   device.setModel("ModelEsp");
   device.enableExtendedUniqueIds();
@@ -953,8 +984,14 @@ void setup() {
   
   // press callbacks
   option.onCommand(onSelectCommand);
-  option.setOptions("BatteryType;Reset Battery Order;Range Test;Info"); // use semicolons as separator of options
+  option.setOptions("BatteryType;None;Range Test;Info"); // use semicolons as separator of options
   option.setRetain(true);
+
+  // press callbacks
+  resetOrder.onCommand( onSelectCommandReset);
+  resetOrder.setOptions("Keep;Reset"); // use semicolons as separator of options
+  resetOrder.setRetain(true);
+ 
   // handle command from the HA panel
   sleepTimeCounter.onCommand(onNumberCommand);
 
@@ -2183,12 +2220,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat1BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat1BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat1Name.setValue(savedDevicesOrder[i].c_str());
+              bat1BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat1BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat1BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat1BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat1Name.setValue(savedDevicesOrder[i].c_str());
+              bat1BatteryType.setValue("NotFound");
+            }
           }  
           #endif
           #if CYCLE_ON
@@ -2211,12 +2254,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat2BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat2BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat2Name.setValue(savedDevicesOrder[i].c_str());
+              bat2BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat2BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat2BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat2BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat2Name.setValue(savedDevicesOrder[i].c_str());
+              bat2BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2239,12 +2288,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat3BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat3BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat3Name.setValue(savedDevicesOrder[i].c_str());
+              bat3BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat3BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat3BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat3BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat3Name.setValue(savedDevicesOrder[i].c_str());
+              bat3BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2267,12 +2322,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat4BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat4BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat4Name.setValue(savedDevicesOrder[i].c_str());
+              bat4BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat4BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat4BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat4BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat4Name.setValue(savedDevicesOrder[i].c_str());
+              bat4BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2295,12 +2356,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat5BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat5BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat5Name.setValue(savedDevicesOrder[i].c_str());
+              bat5BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat5BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat5BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat5BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat5Name.setValue(savedDevicesOrder[i].c_str());
+              bat5BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2323,12 +2390,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat6BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat6BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat6Name.setValue(savedDevicesOrder[i].c_str());
+              bat6BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat6BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat6BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat6BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat6Name.setValue(savedDevicesOrder[i].c_str());
+              bat6BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2351,12 +2424,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat7BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat7BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat7Name.setValue(savedDevicesOrder[i].c_str());
+              bat7BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat7BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat7BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat7BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat7Name.setValue(savedDevicesOrder[i].c_str());
+              bat7BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2379,12 +2458,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat8BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat8BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat8Name.setValue(savedDevicesOrder[i].c_str());
+              bat8BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat8BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat8BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat8BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat8Name.setValue(savedDevicesOrder[i].c_str());
+              bat8BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2407,12 +2492,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat9BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat9BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat9Name.setValue(savedDevicesOrder[i].c_str());
+              bat9BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat9BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat9BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat9BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat9Name.setValue(savedDevicesOrder[i].c_str());
+              bat9BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2435,12 +2526,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat10BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat10BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat10Name.setValue(savedDevicesOrder[i].c_str());
+              bat10BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat10BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat10BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat10BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat10Name.setValue(savedDevicesOrder[i].c_str());
+              bat10BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2463,12 +2560,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat11BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat11BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat11Name.setValue(savedDevicesOrder[i].c_str());
+              bat11BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat11BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat11BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat11BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat11Name.setValue(savedDevicesOrder[i].c_str());
+              bat11BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2491,12 +2594,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat12BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat12BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat12Name.setValue(savedDevicesOrder[i].c_str());
+              bat12BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat12BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat12BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat12BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat12Name.setValue(savedDevicesOrder[i].c_str());
+              bat12BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2519,12 +2628,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat13BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat13BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat13Name.setValue(savedDevicesOrder[i].c_str());
+              bat13BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat13BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat13BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat13BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat13Name.setValue(savedDevicesOrder[i].c_str());
+              bat13BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2547,12 +2662,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat14BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat14BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat14Name.setValue(savedDevicesOrder[i].c_str());
+              bat14BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat14BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat14BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat14BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat14Name.setValue(savedDevicesOrder[i].c_str());
+              bat14BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2575,12 +2696,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat15BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat15BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat15Name.setValue(savedDevicesOrder[i].c_str());
+              bat15BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat15BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat15BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat15BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat15Name.setValue(savedDevicesOrder[i].c_str());
+              bat15BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2603,12 +2730,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat16BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat16BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat16Name.setValue(savedDevicesOrder[i].c_str());
+              bat16BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat16BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat16BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat16BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat16Name.setValue(savedDevicesOrder[i].c_str());
+              bat16BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2631,12 +2764,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat17BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat17BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat17Name.setValue(savedDevicesOrder[i].c_str());
+              bat17BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat17BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat17BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat17BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat17Name.setValue(savedDevicesOrder[i].c_str());
+              bat17BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2659,12 +2798,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat18BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat18BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat18Name.setValue(savedDevicesOrder[i].c_str());
+              bat18BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat18BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat18BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat18BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat18Name.setValue(savedDevicesOrder[i].c_str());
+              bat18BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2687,12 +2832,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat19BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat19BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat19Name.setValue(savedDevicesOrder[i].c_str());
+              bat19BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat19BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat19BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat19BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat19Name.setValue(savedDevicesOrder[i].c_str());
+              bat19BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2715,12 +2866,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat20BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat20BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat20Name.setValue(savedDevicesOrder[i].c_str());
+              bat20BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat20BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat20BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat20BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat20Name.setValue(savedDevicesOrder[i].c_str());
+              bat20BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2743,12 +2900,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat21BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat21BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat21Name.setValue(savedDevicesOrder[i].c_str());
+              bat21BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat21BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat21BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat21BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat21Name.setValue(savedDevicesOrder[i].c_str());
+              bat21BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2771,12 +2934,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat22BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat22BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat22Name.setValue(savedDevicesOrder[i].c_str());
+              bat22BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat22BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat22BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat22BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat22Name.setValue(savedDevicesOrder[i].c_str());
+              bat22BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2799,12 +2968,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat23BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat23BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat23Name.setValue(savedDevicesOrder[i].c_str());
+              bat23BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat23BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat23BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat23BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat23Name.setValue(savedDevicesOrder[i].c_str());
+              bat23BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2827,12 +3002,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat24BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat24BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat24Name.setValue(savedDevicesOrder[i].c_str());
+              bat24BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat24BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat24BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat24BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat24Name.setValue(savedDevicesOrder[i].c_str());
+              bat24BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2855,12 +3036,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat25BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat25BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat25Name.setValue(savedDevicesOrder[i].c_str());
+              bat25BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat25BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat25BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat25BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat25Name.setValue(savedDevicesOrder[i].c_str());
+              bat25BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2883,12 +3070,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat26BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat26BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat26Name.setValue(savedDevicesOrder[i].c_str());
+              bat26BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat26BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat26BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat26BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat26Name.setValue(savedDevicesOrder[i].c_str());
+              bat26BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2911,12 +3104,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat27BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat27BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat27Name.setValue(savedDevicesOrder[i].c_str());
+              bat27BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat27BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat27BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat27BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat27Name.setValue(savedDevicesOrder[i].c_str());
+              bat27BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2939,12 +3138,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat28BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat28BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat28Name.setValue(savedDevicesOrder[i].c_str());
+              bat28BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat28BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat28BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat28BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat28Name.setValue(savedDevicesOrder[i].c_str());
+              bat28BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2967,12 +3172,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat29BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat29BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat29Name.setValue(savedDevicesOrder[i].c_str());
+              bat29BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat29BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat29BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat29BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat29Name.setValue(savedDevicesOrder[i].c_str());
+              bat29BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
@@ -2995,12 +3206,18 @@ void loop() {
           #if TYPE_ON
           if (optionSleep == 0 || optionSleep == 1)  {
             bat30BatteryType.setValue(BattAirHandlerArray[i].HardwareInfoClass.batteryTypeString.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0)bat30BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat30Name.setValue(savedDevicesOrder[i].c_str());
+              bat30BatteryType.setValue("NotFound");
+            }
           }
           else if (optionSleep == 2)  bat30BatteryType.setValue(String(BattAirHandlerArray[i].Rssi).c_str());
           else if (optionSleep == 3){
             bat30BatteryType.setValue(BattAirHandlerArray[i].Status.c_str());
-            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) bat30BatteryType.setValue("NotFound");
+            if (BattAirHandlerArray[i].RealTimeParameter0Response.cellVoltage1==0) {
+              if (i<savedDevicesOrder.size()) bat30Name.setValue(savedDevicesOrder[i].c_str());
+              bat30BatteryType.setValue("NotFound");
+            }
           } 
           #endif
           #if CYCLE_ON
